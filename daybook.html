@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f5e">
+<title>Daybook</title>
+<style>
+:root{--paper:#f6f4ef;--card:#ffffff;--ink:#1d1b16;--mute:#6f6a5f;--line:#e4dfd3;--brand:#2f6f5e;--alarm:#f5b83d;--out:#c0392b;--in:#2e8b57;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--paper:#14130f;--card:#1e1c17;--ink:#f1ede3;--mute:#9b9585;--line:#34312a;--brand:#5fc3a5;--out:#ef7f72;--in:#6fcf97;color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button{font:inherit;color:inherit;cursor:pointer}
+#app{max-width:30rem;margin:0 auto;min-height:100vh;padding:calc(env(safe-area-inset-top,0px) + 1.25rem) 1rem 9rem}
+h1{font-size:1.6rem;margin:0 0 1rem}
+h2{font-size:1rem;margin:1.2rem 0 .5rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:1rem;padding:.8rem;margin-bottom:.6rem}
+.row{display:flex;align-items:center;gap:.6rem}
+.grow{flex:1;min-width:0}
+.mute{color:var(--mute)}.small{font-size:.8rem}
+.inp{width:100%;font:inherit;color:inherit;background:var(--paper);border:1px solid var(--line);border-radius:.75rem;padding:.65rem .75rem;margin-bottom:.5rem}
+textarea.inp{min-height:6rem;resize:vertical}
+.btn{background:var(--brand);color:#fff;border:0;border-radius:.75rem;padding:.65rem 1rem;font-weight:600}
+@media (prefers-color-scheme:dark){.btn{color:#10201b}}
+.btn:disabled{opacity:.45}
+.ghost{background:transparent;border:1px solid var(--line);border-radius:.75rem;padding:.6rem .9rem}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.icon{background:none;border:0;padding:.3rem;color:var(--mute);font-size:1.1rem}
+.out{color:var(--out)}.in{color:var(--in)}
+.done{text-decoration:line-through;opacity:.55}
+.bar{height:.45rem;border-radius:1rem;background:var(--line);overflow:hidden;margin-top:.25rem}
+.bar>i{display:block;height:100%;background:var(--brand)}
+nav{position:fixed;inset:auto 0 0 0;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);z-index:10}
+nav div{max-width:30rem;margin:0 auto;display:flex}
+nav button{flex:1;background:none;border:0;padding:.5rem 0 .55rem;font-size:.7rem;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:.05rem}
+nav button span{font-size:1.25rem;line-height:1.2}
+nav button.on{color:var(--brand);font-weight:700}
+#fab{position:fixed;right:1.2rem;bottom:calc(5.2rem + env(safe-area-inset-bottom,0px));width:3.6rem;height:3.6rem;border-radius:50%;border:0;background:var(--alarm);color:#2A1C00;font-size:1.5rem;box-shadow:0 4px 14px rgba(0,0,0,.3);z-index:20}
+#fab:active{transform:scale(.95)}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;z-index:30}
+.sheet{width:100%;max-width:30rem;margin:0 auto;background:var(--card);border-radius:1.5rem 1.5rem 0 0;padding:1.2rem;padding-bottom:calc(1.2rem + env(safe-area-inset-bottom,0px))}
+#ring{position:fixed;inset:0;z-index:40;background:var(--alarm);color:#2A1C00;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5rem;padding:2rem;text-align:center}
+#ring .t{font-size:1.9rem;font-weight:800}
+#ring .bell{font-size:4.5rem;animation:p 1s infinite}
+@keyframes p{50%{transform:scale(1.15) rotate(8deg)}}
+#ring button{flex:1;border-radius:.75rem;padding:.8rem;font-weight:700;border:2px solid #2A1C00;background:transparent;color:#2A1C00}
+#ring button.solid{background:#2A1C00;color:var(--alarm)}
+.hidden{display:none!important}
+.pill{display:inline-block;font-size:.72rem;border:1px solid var(--line);border-radius:2rem;padding:.05rem .5rem;color:var(--mute)}
+select.inp{appearance:auto}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1 id="title"></h1>
+  <div id="view"></div>
+</div>
+
+<button id="fab" aria-label="Voice command">🎤</button>
+
+<nav><div id="tabs"></div></nav>
+
+<div id="sheet" class="overlay hidden">
+  <div class="sheet" id="sheetBody"></div>
+</div>
+
+<div id="ring" class="hidden">
+  <div class="bell">🔔</div>
+  <div class="t" id="ringTitle"></div>
+  <div class="row" style="width:100%;max-width:20rem">
+    <button id="snoozeBtn">Snooze 5 min</button>
+    <button id="stopBtn" class="solid">Dismiss</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ---------- helpers ---------- */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const money = (n) => "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const fmt = (t) => new Date(t).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+const toInput = (t) => { const d = new Date(t - new Date(t).getTimezoneOffset() * 6e4); return d.toISOString().slice(0, 16); };
+const cap = (x) => x.replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase());
+
+/* ---------- storage ---------- */
+const KEY = "daybook-v1";
+let S = { notes: [], tasks: [], appts: [], txns: [], fired: [] };
+try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+
+/* ---------- expense heads (edit these) ---------- */
+const CATEGORIES = {
+  "Food & Dining": ["food","lunch","dinner","breakfast","snack","snacks","tea","chai","coffee","restaurant","hotel","cafe","pizza","burger","biryani","thali","zomato","swiggy","khana","nasta","mithai","icecream","ice cream","dhaba"],
+  "Groceries": ["grocery","groceries","kirana","sabzi","vegetable","vegetables","fruit","fruits","milk","doodh","dudh","atta","rice","dal","oil","bigbasket","blinkit","zepto","ration","egg","eggs"],
+  "Fuel": ["fuel","petrol","diesel","cng","pump"],
+  "Transport": ["auto","rickshaw","taxi","cab","uber","ola","bus","train","metro","ticket","toll","parking","fare","flight","rapido"],
+  "Bills & Utilities": ["bill","electricity","light bill","water","wifi","internet","broadband","recharge","mobile","phone bill","gas bill","cylinder","dth","postpaid","prepaid"],
+  "Rent & Home": ["rent","maintenance","repair","plumber","electrician","furniture","home","house","kiraya"],
+  "Shopping": ["shopping","clothes","shirt","shoes","amazon","flipkart","myntra","dress","bag","watch","gift"],
+  "Health": ["doctor","medicine","medicines","medical","pharmacy","hospital","clinic","test","lab","dawai","dava","dentist","checkup"],
+  "Education": ["school","fees","fee","tuition","book","books","course","exam","college","stationery","class"],
+  "Entertainment": ["movie","cinema","netflix","hotstar","prime","spotify","game","games","party","subscription","outing"],
+  "Travel": ["trip","travel","vacation","holiday","stay","resort"],
+  "Family & Personal": ["haircut","salon","barber","parlour","kids","child","family","donation","charity","mandir","temple"],
+  "Loans & EMI": ["emi","loan","installment","instalment","interest","insurance","premium","lic","sip"]
+};
+const OTHER = "Other";
+const HEADS = [...Object.keys(CATEGORIES), OTHER];
+function guess(text) {
+  const t = " " + text.toLowerCase().replace(/[^a-z0-9\u0900-\u097f ]/g, " ") + " ";
+  let best = OTHER, top = 0;
+  for (const [cat, words] of Object.entries(CATEGORIES)) {
+    let score = 0;
+    for (const w of words) if (t.includes(" " + w + " ") || t.includes(" " + w + "s ")) score += w.length > 3 ? 2 : 1;
+    if (score > top) { top = score; best = cat; }
+  }
+  return { cat: best, score: top };
+}
+const headOptions = (sel) => HEADS.map((h) => `<option ${h === sel ? "selected" : ""}>${esc(h)}</option>`).join("");
+
+/* ---------- voice command parser ---------- */
+function when(s) {
+  const now = new Date(), d = new Date(now);
+  let t = s, day = false;
+  if (/\btomorrow\b/.test(t)) { d.setDate(d.getDate() + 1); day = true; t = t.replace(/\btomorrow\b/, ""); }
+  t = t.replace(/\btoday\b/, "");
+  ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"].forEach((n, i) => {
+    if (new RegExp("\\b" + n + "\\b").test(t)) { d.setDate(now.getDate() + ((i - now.getDay() + 7) % 7 || 7)); day = true; t = t.replace(n, ""); }
+  });
+  let h = -1, mi = 0;
+  const a = t.match(/(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\b\.?/);
+  const b = t.match(/\bat\s+(\d{1,2})(?::(\d{2}))?/);
+  if (a) { h = (+a[1] % 12) + (a[3] === "p" ? 12 : 0); mi = +(a[2] || 0); t = t.replace(a[0], ""); }
+  else if (b) { h = +b[1]; mi = +(b[2] || 0); t = t.replace(b[0], ""); }
+  if (h < 0 && !day) return { rest: t };
+  d.setHours(h < 0 ? 9 : h, mi, 0, 0);
+  if (!day && d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
+  return { at: d.getTime(), rest: t };
+}
+function parse(raw) {
+  const s = raw.trim();
+  const l = s.toLowerCase().replace(/(\d),(\d{3})/g, "$1$2");
+  const w = when(l);
+  const title = (re) => cap(w.rest.replace(re, ""));
+  if (/^note\b/.test(l)) return { kind: "note", text: cap(s.replace(/^note[:,]?\s*/i, "")) };
+  if (/^(remind|reminder)/.test(l)) return { kind: "task", title: title(/^\s*(remind me to|remind me|reminder)\s*/), due: w.at, alarm: !!w.at };
+  if (/^(add task|task|todo)/.test(l)) return { kind: "task", title: title(/^\s*(add task|task|todo)\s*/), due: w.at, alarm: !!w.at };
+  if (/^(appointment|meeting|schedule)/.test(l)) return { kind: "appt", title: title(/^\s*(appointment with|appointment|meeting with|meeting|schedule)\s*/), at: w.at ?? Date.now() + 864e5 };
+  const amt = w.rest.match(/(\d+(?:\.\d+)?)/);
+  if (amt) {
+    const g = guess(w.rest);
+    const isIncome = /\b(received|earned|income|salary|credited|bonus|refund|got paid)\b/.test(l);
+    const isExpense = /^(spent|paid|expense|bought|purchased|gave)\b/.test(l) || /\b(rupees|rs|inr)\b|₹/.test(l) || g.score > 0;
+    if (isIncome) return { kind: "txn", type: "income", amount: +amt[1], cat: "Income", note: cap(s) };
+    if (isExpense) return { kind: "txn", type: "expense", amount: +amt[1], cat: g.cat, note: cap(s) };
+  }
+  return { kind: "note", text: cap(s) };
+}
+function describe(i) {
+  if (i.kind === "txn") return `${i.type === "income" ? "Income" : "Expense"} ${money(i.amount)} · ${i.cat}`;
+  if (i.kind === "task") return `Task “${i.title}”${i.due ? " · " + fmt(i.due) + " · alarm" : ""}`;
+  if (i.kind === "appt") return `Appointment “${i.title}” · ${fmt(i.at)}`;
+  return `Note “${i.text}”`;
+}
+
+/* ---------- speech recognition ---------- */
+const ERRORS = {
+  "not-allowed": "The microphone is blocked. Allow it in the browser's site settings, then tap Speak again.",
+  "service-not-allowed": "Voice input is blocked here. Open this page in Chrome instead, or type below.",
+  "no-speech": "I didn't hear anything. Tap Speak again and talk closer to the phone.",
+  "audio-capture": "No microphone was found.",
+  network: "Voice input needs an internet connection.",
+  "language-not-supported": "Your phone's voice engine doesn't support this language.",
+  aborted: ""
+};
+function listen(lang, o) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const r = new SR();
+  r.lang = lang; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
+  let got = false, failed = false;
+  r.onstart = () => o.onStatus("Listening… speak now");
+  r.onresult = (e) => { let t = ""; for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript; got = true; o.onText(t.trim()); };
+  r.onerror = (e) => { failed = true; o.onStatus(e.error in ERRORS ? ERRORS[e.error] : "Voice error: " + e.error); };
+  r.onend = () => { if (!got && !failed) o.onStatus("I didn't catch that. Tap Speak again."); else if (got) o.onStatus(""); o.onEnd(); };
+  try { r.start(); } catch (e) { o.onStatus("Could not start the microphone."); return null; }
+  return { stop: () => { try { r.stop(); } catch (e) {} } };
+}
+
+/* ---------- alarm ---------- */
+let actx = null, beepTimer = null, ring = null, snoozeTimer = null;
+const unlock = () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume(); } catch (e) {} };
+document.addEventListener("click", unlock); document.addEventListener("touchstart", unlock);
+function beep() {
+  if (!actx) return;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = "square"; o.frequency.value = 880; g.gain.value = 0.15;
+  o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + 0.25);
+}
+function startRing(r) {
+  ring = r; $("#ringTitle").textContent = r.title; $("#ring").classList.remove("hidden");
+  unlock(); clearInterval(beepTimer); beep(); beepTimer = setInterval(() => { beep(); if (navigator.vibrate) navigator.vibrate([300, 150, 300]); }, 1000);
+}
+function stopRing() { clearInterval(beepTimer); ring = null; $("#ring").classList.add("hidden"); if (navigator.vibrate) navigator.vibrate(0); }
+$("#stopBtn").onclick = stopRing;
+$("#snoozeBtn").onclick = () => { const r = ring; stopRing(); if (r) { clearTimeout(snoozeTimer); snoozeTimer = setTimeout(() => startRing(r), 5 * 6e4); } };
+setInterval(() => {
+  const now = Date.now(), recent = now - 36e5;
+  const due = [
+    ...S.tasks.filter((x) => x.alarm && !x.done && x.due && x.due <= now && x.due > recent).map((x) => ({ id: x.id + x.due, title: x.title })),
+    ...S.appts.filter((a) => a.alarm && a.at - a.remind * 6e4 <= now && a.at > recent).map((a) => ({ id: a.id + a.at, title: a.title }))
+  ];
+  const d = due.find((x) => !S.fired.includes(x.id));
+  if (d && !ring) {
+    S.fired = [...S.fired.slice(-200), d.id]; save();
+    startRing(d);
+    try { if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("Reminder", { body: d.title, requireInteraction: true }); } catch (e) {}
+  }
+}, 5000);
+
+/* ---------- tabs ---------- */
+const TABS = [["today","Today","🏠"],["tasks","Tasks","✅"],["notes","Notes","📝"],["cal","Calendar","📅"],["money","Money","💰"],["more","More","⚙️"]];
+let tab = "today", noteQ = "", noteNewest = true, editNote = null;
+$("#tabs").innerHTML = TABS.map(([id, label, ic]) => `<button data-tab="${id}"><span>${ic}</span>${label}</button>`).join("");
+
+function render() {
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  $("#title").textContent = TABS.find((t) => t[0] === tab)[1];
+  $("#view").innerHTML = ({ today: vToday, tasks: vTasks, notes: vNotes, cal: vCal, money: vMoney, more: vMore })[tab]();
+  if (tab === "money") wireMoney();
+}
+
+/* ---------- views ---------- */
+function vToday() {
+  const now = Date.now(), m = new Date().getMonth(), y = new Date().getFullYear();
+  const todayTasks = S.tasks.filter((t) => !t.done && (!t.due || sameDay(t.due, now))).slice(0, 6);
+  const todayAppts = S.appts.filter((a) => sameDay(a.at, now)).sort((a, b) => a.at - b.at);
+  const spentToday = S.txns.filter((t) => t.type === "expense" && sameDay(t.at, now)).reduce((s, t) => s + t.amount, 0);
+  const spentMonth = S.txns.filter((t) => { const d = new Date(t.at); return t.type === "expense" && d.getMonth() === m && d.getFullYear() === y; }).reduce((s, t) => s + t.amount, 0);
+  const recent = [...S.notes].sort((a, b) => b.at - a.at).slice(0, 3);
+  return `
+  <div class="mute small" style="margin:-.7rem 0 .8rem">${new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</div>
+  <div class="grid2">
+    <div class="card"><div class="mute small">Spent today</div><div class="out" style="font-size:1.3rem;font-weight:700">${money(spentToday)}</div></div>
+    <div class="card"><div class="mute small">Spent this month</div><div class="out" style="font-size:1.3rem;font-weight:700">${money(spentMonth)}</div></div>
+  </div>
+  <h2>Appointments today</h2>
+  ${todayAppts.map((a) => `<div class="card row"><div class="grow">${esc(a.title)}</div><div class="mute small">${new Date(a.at).toLocaleTimeString("en-IN", { timeStyle: "short" })}</div></div>`).join("") || `<div class="mute small">Nothing scheduled.</div>`}
+  <h2>Tasks</h2>
+  ${todayTasks.map((t) => `<div class="card row"><input type="checkbox" data-act="toggleTask" data-id="${t.id}"><div class="grow">${esc(t.title)}${t.due ? `<div class="mute small">${fmt(t.due)}${t.alarm ? " 🔔" : ""}</div>` : ""}</div></div>`).join("") || `<div class="mute small">No open tasks for today.</div>`}
+  <h2>Latest notes</h2>
+  ${recent.map((n) => `<div class="card"><div style="white-space:pre-wrap;word-break:break-word">${esc(n.text)}</div><div class="mute small">${fmt(n.at)}</div></div>`).join("") || `<div class="mute small">No notes yet.</div>`}`;
+}
+
+function vTasks() {
+  const open = S.tasks.filter((t) => !t.done).sort((a, b) => (a.due || 9e15) - (b.due || 9e15));
+  const done = S.tasks.filter((t) => t.done);
+  const item = (t) => `<div class="card row"><input type="checkbox" data-act="toggleTask" data-id="${t.id}" ${t.done ? "checked" : ""}>
+    <div class="grow ${t.done ? "done" : ""}">${esc(t.title)}${t.due ? `<div class="mute small">${fmt(t.due)}${t.alarm ? " 🔔" : ""}</div>` : ""}</div>
+    <button class="icon" data-act="delTask" data-id="${t.id}" aria-label="Delete">🗑</button></div>`;
+  return `
+  <div class="card">
+    <input class="inp" id="tTitle" placeholder="New task">
+    <input class="inp" id="tDue" type="datetime-local">
+    <label class="row small mute" style="margin-bottom:.6rem"><input type="checkbox" id="tAlarm" checked> Ring an alarm at the due time</label>
+    <button class="btn" style="width:100%" data-act="addTask">Add task</button>
+  </div>
+  ${open.map(item).join("") || `<div class="mute small">No open tasks.</div>`}
+  ${done.length ? `<h2>Done</h2>${done.map(item).join("")}` : ""}`;
+}
+
+function notesList() {
+  const q = noteQ.toLowerCase();
+  const shown = S.notes.filter((n) => n.text.toLowerCase().includes(q)).sort((a, b) => noteNewest ? b.at - a.at : a.at - b.at);
+  const head = `<div class="mute small" style="margin:.2rem 0 .6rem">${S.notes.length} note${S.notes.length === 1 ? "" : "s"}${q ? ` · ${shown.length} match${shown.length === 1 ? "" : "es"}` : ""}</div>`;
+  if (!shown.length) return head + `<div class="mute small" style="text-align:center">${S.notes.length ? "No matching notes." : "No notes yet. Type or dictate one above, or tap 🎤 and say “note …”."}</div>`;
+  return head + shown.map((n) => editNote === n.id
+    ? `<div class="card"><textarea class="inp" id="editText">${esc(n.text)}</textarea><div class="row" style="justify-content:flex-end"><button class="ghost" data-act="cancelEdit">Cancel</button><button class="btn" data-act="saveEdit" data-id="${n.id}">Save</button></div></div>`
+    : `<div class="card row" style="align-items:flex-start"><div class="grow"><div style="white-space:pre-wrap;word-break:break-word">${esc(n.text)}</div><div class="mute small">${fmt(n.at)}</div></div>
+       <button class="icon" data-act="editNote" data-id="${n.id}" aria-label="Edit">✏️</button><button class="icon" data-act="delNote" data-id="${n.id}" aria-label="Delete">🗑</button></div>`).join("");
+}
+function vNotes() {
+  return `
+  <div class="card">
+    <textarea class="inp" id="nText" placeholder="Write or dictate a note…"></textarea>
+    <div id="nStatus" class="mute small" style="margin-bottom:.4rem"></div>
+    <div class="row"><button class="ghost" id="nMic" data-act="dictate">🎤 Speak</button><button class="btn grow" data-act="addNote">Add note</button></div>
+  </div>
+  <div class="row"><input class="inp grow" id="nSearch" placeholder="🔍 Search notes" value="${esc(noteQ)}" style="margin:0"><button class="ghost" data-act="sortNotes">${noteNewest ? "Newest" : "Oldest"}</button></div>
+  <div id="nList" style="margin-top:.5rem">${notesList()}</div>`;
+}
+
+function vCal() {
+  const now = Date.now();
+  const up = S.appts.filter((a) => a.at >= now - 36e5).sort((a, b) => a.at - b.at);
+  const past = S.appts.filter((a) => a.at < now - 36e5).sort((a, b) => b.at - a.at).slice(0, 10);
+  const item = (a, dim) => `<div class="card row" style="${dim ? "opacity:.55" : ""}"><div class="grow">${esc(a.title)}<div class="mute small">${fmt(a.at)}${a.alarm ? ` · 🔔 ${a.remind} min before` : ""}</div></div><button class="icon" data-act="delAppt" data-id="${a.id}" aria-label="Delete">🗑</button></div>`;
+  return `
+  <div class="card">
+    <input class="inp" id="aTitle" placeholder="Appointment or event">
+    <input class="inp" id="aAt" type="datetime-local" value="${toInput(Date.now() + 36e5)}">
+    <select class="inp" id="aRemind"><option value="10">Remind 10 min before</option><option value="0">Remind at the time</option><option value="30">Remind 30 min before</option><option value="60">Remind 1 hour before</option></select>
+    <button class="btn" style="width:100%" data-act="addAppt">Add appointment</button>
+  </div>
+  <h2>Upcoming</h2>${up.map((a) => item(a)).join("") || `<div class="mute small">Nothing upcoming.</div>`}
+  ${past.length ? `<h2>Past</h2>${past.map((a) => item(a, true)).join("")}` : ""}`;
+}
+
+function vMoney() {
+  const m = new Date().getMonth(), y = new Date().getFullYear();
+  const mt = S.txns.filter((t) => { const d = new Date(t.at); return d.getMonth() === m && d.getFullYear() === y; });
+  const inc = mt.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const exp = mt.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const by = {};
+  mt.filter((t) => t.type === "expense").forEach((t) => (by[t.cat] = (by[t.cat] || 0) + t.amount));
+  const rows = Object.entries(by).sort((a, b) => b[1] - a[1]);
+  const list = [...S.txns].sort((a, b) => b.at - a.at).slice(0, 60);
+  return `
+  <div class="grid2">
+    <div class="card"><div class="mute small">Income (month)</div><div class="in" style="font-size:1.15rem;font-weight:700">${money(inc)}</div></div>
+    <div class="card"><div class="mute small">Expenses (month)</div><div class="out" style="font-size:1.15rem;font-weight:700">${money(exp)}</div></div>
+  </div>
+  <div class="card">
+    <div class="grid2"><select class="inp" id="mType"><option value="expense">Expense</option><option value="income">Income</option></select><input class="inp" id="mAmt" type="number" inputmode="decimal" placeholder="Amount ₹"></div>
+    <input class="inp" id="mNote" placeholder="What was it for? e.g. petrol, chai, rent">
+    <select class="inp" id="mCat">${headOptions(OTHER)}</select>
+    <div class="mute small" id="mHint" style="margin:-.2rem 0 .5rem">Category is picked automatically from the description.</div>
+    <button class="btn" style="width:100%" data-act="addTxn">Add</button>
+  </div>
+  ${rows.length ? `<h2>This month by category</h2>${rows.map(([c, v]) => `<div style="margin-bottom:.5rem"><div class="row small"><div class="grow">${esc(c)}</div><div>${money(v)}</div></div><div class="bar"><i style="width:${Math.max(3, v / exp * 100)}%"></i></div></div>`).join("")}` : ""}
+  <h2>Recent</h2>
+  ${list.map((t) => `<div class="card row"><div class="grow">${esc(t.note || t.cat)}<div class="small mute">${fmt(t.at)}</div>
+    ${t.type === "expense" ? `<select class="small" data-act="recat" data-id="${t.id}" style="margin-top:.2rem;background:var(--paper);color:inherit;border:1px solid var(--line);border-radius:.5rem">${headOptions(t.cat)}</select>` : `<span class="pill">Income</span>`}</div>
+    <div class="${t.type === "income" ? "in" : "out"}" style="font-weight:700">${t.type === "income" ? "+" : "−"}${money(t.amount)}</div>
+    <button class="icon" data-act="delTxn" data-id="${t.id}" aria-label="Delete">🗑</button></div>`).join("") || `<div class="mute small">No transactions yet.</div>`}`;
+}
+function wireMoney() {
+  const note = $("#mNote"), cat = $("#mCat"), type = $("#mType");
+  const sync = () => {
+    if (type.value === "income") { cat.innerHTML = `<option>Income</option>`; $("#mHint").textContent = ""; return; }
+    if (cat.options.length === 1) cat.innerHTML = headOptions(OTHER);
+    const g = guess(note.value);
+    cat.value = g.cat; $("#mHint").textContent = g.score ? `Auto category: ${g.cat}` : "Category is picked automatically from the description.";
+  };
+  note.addEventListener("input", sync); type.addEventListener("change", sync);
+}
+
+function vMore() {
+  const perm = typeof Notification === "undefined" ? "not supported" : Notification.permission;
+  return `
+  <div class="card"><div style="font-weight:600">Alarm</div><div class="mute small" style="margin:.2rem 0 .6rem">Alarms ring only while this page is open on your phone. Keep it open, and turn the volume up.</div>
+    <div class="grid2"><button class="ghost" data-act="testAlarm">Test alarm</button><button class="ghost" data-act="notifPerm">Notifications: ${perm}</button></div></div>
+  <div class="card"><div style="font-weight:600">Backup</div><div class="mute small" style="margin:.2rem 0 .6rem">Data is saved in this browser only. Export a copy now and then.</div>
+    <div class="grid2"><button class="ghost" data-act="export">Export backup</button><button class="ghost" data-act="import">Import backup</button></div>
+    <input type="file" id="impFile" accept="application/json" class="hidden"></div>
+  <div class="card"><div style="font-weight:600">Reset</div><button class="ghost out" style="margin-top:.5rem" data-act="clearAll">Delete all data</button></div>`;
+}
+
+/* ---------- voice sheet ---------- */
+let mic = null, heard = "", rec = false, status = "", catOverride = null;
+function currentIntent() {
+  if (!heard.trim()) return null;
+  const i = parse(heard);
+  if (i.kind === "txn" && catOverride && i.type === "expense") i.cat = catOverride;
+  return i;
+}
+function drawSheet() {
+  const i = currentIntent();
+  $("#sheetBody").innerHTML = `
+    <div style="font-weight:600;margin-bottom:.5rem">${rec ? "Listening…" : "Check what I heard"}</div>
+    <input class="inp" id="heard" placeholder="Or type a command, e.g. Spent 450 on petrol" value="${esc(heard)}">
+    ${status ? `<div class="mute small" style="margin-bottom:.5rem">${esc(status)}</div>` : ""}
+    ${i ? `<div class="card" style="background:var(--paper)">${esc(describe(i))}</div>` : ""}
+    ${i && i.kind === "txn" && i.type === "expense" ? `<select class="inp" id="sheetCat">${headOptions(i.cat)}</select>` : ""}
+    <div class="grid2"><button class="ghost" data-act="again">Speak again</button><button class="btn" data-act="saveVoice" ${i ? "" : "disabled"}>Save</button></div>
+    <div class="mute small" style="margin-top:.6rem">Try: “Spent 450 on petrol”, “Remind me to call mom tomorrow at 6 pm”, “Meeting with Raj Friday at 4 pm”, “Note buy gift”.</div>`;
+  const h = $("#heard");
+  h.oninput = () => { heard = h.value; catOverride = null; const pos = h.selectionStart; drawSheet(); const n = $("#heard"); n.focus(); n.setSelectionRange(pos, pos); };
+  const sc = $("#sheetCat"); if (sc) sc.onchange = () => { catOverride = sc.value; drawSheet(); };
+}
+function startMic() {
+  if (mic) mic.stop();
+  heard = ""; status = ""; catOverride = null; rec = true;
+  $("#sheet").classList.remove("hidden"); drawSheet();
+  mic = listen("en-IN", {
+    onText: (t) => { heard = t; drawSheet(); },
+    onStatus: (s) => { status = s; drawSheet(); },
+    onEnd: () => { rec = false; drawSheet(); }
+  });
+  if (!mic) { rec = false; status = status || "Voice input isn't supported in this browser. Type your command below."; drawSheet(); }
+}
+function closeSheet() { if (mic) mic.stop(); mic = null; rec = false; $("#sheet").classList.add("hidden"); }
+$("#fab").onclick = startMic;
+$("#sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeSheet(); });
+
+/* ---------- note dictation ---------- */
+let nMic = null, nBase = "";
+function dictate() {
+  const btn = $("#nMic"), box = $("#nText"), st = $("#nStatus");
+  if (nMic) { nMic.stop(); return; }
+  nBase = box.value ? box.value.trimEnd() + " " : "";
+  btn.textContent = "⏹ Stop";
+  nMic = listen("en-IN", {
+    onText: (t) => { box.value = nBase + t; },
+    onStatus: (s) => { st.textContent = s; },
+    onEnd: () => { nMic = null; if ($("#nMic")) $("#nMic").textContent = "🎤 Speak"; }
+  });
+  if (!nMic) { btn.textContent = "🎤 Speak"; st.textContent = st.textContent || "Voice input isn't supported in this browser. Type your note instead."; }
+}
+
+/* ---------- actions ---------- */
+function saveVoice() {
+  const i = currentIntent(); if (!i) return;
+  if (i.kind === "note") S.notes.unshift({ id: uid(), text: i.text, at: Date.now() });
+  if (i.kind === "task") S.tasks.unshift({ id: uid(), title: i.title, due: i.due, done: false, alarm: i.alarm });
+  if (i.kind === "appt") S.appts.push({ id: uid(), title: i.title, at: i.at, remind: 10, alarm: true });
+  if (i.kind === "txn") S.txns.unshift({ id: uid(), type: i.type, amount: i.amount, cat: i.cat, note: i.note, at: Date.now() });
+  save(); closeSheet(); heard = ""; render();
+}
+const A = {
+  addTask() {
+    const title = $("#tTitle").value.trim(); if (!title) return;
+    const v = $("#tDue").value, due = v ? new Date(v).getTime() : undefined;
+    S.tasks.unshift({ id: uid(), title, due, done: false, alarm: !!(due && $("#tAlarm").checked) }); save(); render();
+  },
+  toggleTask(el) { const t = S.tasks.find((x) => x.id === el.dataset.id); if (t) { t.done = !t.done; save(); render(); } },
+  delTask(el) { S.tasks = S.tasks.filter((x) => x.id !== el.dataset.id); save(); render(); },
+  addNote() { const t = $("#nText").value.trim(); if (!t) return; if (nMic) nMic.stop(); S.notes.unshift({ id: uid(), text: t, at: Date.now() }); save(); render(); },
+  dictate,
+  sortNotes() { noteNewest = !noteNewest; render(); },
+  editNote(el) { editNote = el.dataset.id; $("#nList").innerHTML = notesList(); const e = $("#editText"); if (e) e.focus(); },
+  cancelEdit() { editNote = null; $("#nList").innerHTML = notesList(); },
+  saveEdit(el) { const t = $("#editText").value.trim(); const n = S.notes.find((x) => x.id === el.dataset.id); if (n && t) n.text = t; editNote = null; save(); $("#nList").innerHTML = notesList(); },
+  delNote(el) { if (confirm("Delete this note?")) { S.notes = S.notes.filter((x) => x.id !== el.dataset.id); save(); $("#nList").innerHTML = notesList(); } },
+  addAppt() {
+    const title = $("#aTitle").value.trim(), v = $("#aAt").value; if (!title || !v) return;
+    S.appts.push({ id: uid(), title, at: new Date(v).getTime(), remind: +$("#aRemind").value, alarm: true }); save(); render();
+  },
+  delAppt(el) { S.appts = S.appts.filter((x) => x.id !== el.dataset.id); save(); render(); },
+  addTxn() {
+    const amount = parseFloat($("#mAmt").value); if (!(amount > 0)) return;
+    const type = $("#mType").value, note = $("#mNote").value.trim();
+    S.txns.unshift({ id: uid(), type, amount, cat: type === "income" ? "Income" : $("#mCat").value, note: note ? cap(note) : "", at: Date.now() }); save(); render();
+  },
+  delTxn(el) { S.txns = S.txns.filter((x) => x.id !== el.dataset.id); save(); render(); },
+  testAlarm() { startRing({ id: "test", title: "Test alarm" }); },
+  notifPerm() { if (typeof Notification !== "undefined") Notification.requestPermission().then(render); },
+  export() {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 2)], { type: "application/json" }));
+    a.download = "daybook-backup.json"; a.click();
+  },
+  import() { $("#impFile").click(); },
+  clearAll() { if (confirm("Delete ALL notes, tasks, appointments and transactions?")) { S = { notes: [], tasks: [], appts: [], txns: [], fired: [] }; save(); render(); } },
+  again: startMic,
+  saveVoice
+};
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-tab]"); if (t) { tab = t.dataset.tab; editNote = null; render(); window.scrollTo(0, 0); return; }
+  const b = e.target.closest("[data-act]");
+  if (b && A[b.dataset.act] && b.tagName !== "SELECT" && b.tagName !== "INPUT") A[b.dataset.act](b);
+  if (b && b.dataset.act === "toggleTask" && b.tagName === "INPUT") A.toggleTask(b);
+});
+document.addEventListener("change", (e) => {
+  const el = e.target;
+  if (el.dataset && el.dataset.act === "recat") { const t = S.txns.find((x) => x.id === el.dataset.id); if (t) { t.cat = el.value; save(); render(); } }
+  if (el.id === "impFile" && el.files[0]) {
+    el.files[0].text().then((txt) => { try { const d = JSON.parse(txt); S = Object.assign({ notes: [], tasks: [], appts: [], txns: [], fired: [] }, d); save(); render(); alert("Backup imported."); } catch (err) { alert("That file isn't a valid backup."); } });
+  }
+});
+document.addEventListener("input", (e) => { if (e.target.id === "nSearch") { noteQ = e.target.value; $("#nList").innerHTML = notesList(); } });
+
+render();
+</script>
+</body>
+</html>
